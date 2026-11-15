@@ -19,6 +19,8 @@ PaintManager::PaintManager() :
     _cursorShm(NULL),
     _inPainting(false),
     _releasePending(false),
+    _wakeRequested(false),
+    _pendingFrameWakeMs(37),
     _nextFrameId(1),
     _maxInFlightFrames(FRAME_SLOTS),
     _freeInFlightCount(0),
@@ -130,6 +132,7 @@ int PaintManager::Initialize(const struct mod* mod, int recordFormat, int sessio
     // painter initialize
     _paint->Initialize(mod);
     _maxInFlightFrames = _paint->MaxInFlightFrames();
+    _pendingFrameWakeMs = _paint->PendingFrameWakeMs();
 
     _mod = mod;
     _releasePending = false;
@@ -192,6 +195,7 @@ void PaintManager::ReleaseResources() {
     ResetInFlight();
     _inPainting = false;
     _releasePending = false;
+    _wakeRequested = false;
     _inited = false;
 }
 
@@ -518,6 +522,36 @@ void PaintManager::PaintEnd(int ackFrameId) {
     }
     
     _inPainting = (_inFlightCount > 0);
+
+    // xrdp runs the module (Paint) first and handles the client's ACK afterwards in the same loop pass.
+    // So the capacity freed by an ACK is only used at the next loop pass: the agent's next frame
+    // notification, client input, or the 100ms timer. When the screen stops changing there is no next
+    // notification and the last frame of the burst waits for the timer. Ask for an earlier wake up.
+    if (_releasePending == false && HasSubmittableFrame() == true) {
+        _wakeRequested = true;
+    }
+}
+
+bool PaintManager::HasSubmittableFrame() {
+    for (int i = 0; i < _recordShmCnt; i++) {
+        if (_recordShm[i] == NULL || _recordShm[i]->mem == NULL) {
+            continue;
+        }
+
+        if (_inFlightCountByDisplay[i] >= _maxInFlightFrames) {
+            continue;
+        }
+
+        screenrecord_shm_t* shm = (screenrecord_shm_t*)_recordShm[i]->mem;
+        unsigned int write_pos = atomic_load_explicit(&shm->write_pos, memory_order_acquire);
+
+        // a frame that has not been submitted yet
+        if ((int)(write_pos - _nextSubmitPos[i]) > 0) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 void PaintManager::PaintMouseCursor() {

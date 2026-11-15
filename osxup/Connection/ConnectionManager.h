@@ -44,6 +44,10 @@ public:
     // 화면 그리기
     void Paint();
     void PaintEnd(int ackFrameId);
+
+    // How long (ms) xrdp may wait at most before painting a frame that is already waiting.
+    // 0 when nothing is waiting. A request is reported only once.
+    int ConsumePaintWakeMs();
     
     // handle channel msg (clipboard, etc)
     void HandleChannelMsg(long param1, long param2, long param3, long param4);

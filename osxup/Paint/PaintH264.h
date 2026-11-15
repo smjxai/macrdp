@@ -19,6 +19,9 @@ public:
 
     // 인코더·네트워크가 못 따라갈 때 지연이 늘지 않도록 설정
     int MaxInFlightFrames() const override { return 3; }
+
+    // H.264 is captured at 60 fps
+    int PendingFrameWakeMs() const override { return 20; }
     
 private:
     xstream_t* _drawCmd = NULL;

@@ -219,7 +219,13 @@ lib_mod_get_wait_objs(struct mod *mod, void *read_objs, int *rcount,
 {
     mod->connectionManager->GetWaitObjects(read_objs, rcount);
 
-    *timeout = 100;
+    // Normally wake up every 100ms.
+    // When an ACK just freed capacity while a frame is waiting, come back after about one frame interval:
+    // if the screen is still changing, the agent's next notification arrives first and the newest frame
+    // is sent as before; if it stopped changing, the waiting frame goes out now instead of 100ms later.
+    int wakeMs = mod->connectionManager->ConsumePaintWakeMs();
+
+    *timeout = (wakeMs > 0 && wakeMs < 100) ? wakeMs : 100;
     
     return 0;
 }

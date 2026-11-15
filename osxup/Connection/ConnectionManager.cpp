@@ -231,6 +231,13 @@ void ConnectionManager::PaintEnd(int ackFrameId) {
     _paintManager.PaintEnd(ackFrameId);
 }
 
+int ConnectionManager::ConsumePaintWakeMs() {
+    // Always consume the request, so it cannot keep waking xrdp up while painting is not possible.
+    int wakeMs = _paintManager.ConsumeWakeRequestMs();
+
+    return CanPaint() ? wakeMs : 0;
+}
+
 void ConnectionManager::HandleChannelMsg(long param1, long param2, long param3, long param4) {
     // extract channel data
     int channelId = (int)LOWORD(param1);

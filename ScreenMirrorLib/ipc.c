@@ -13,6 +13,9 @@
 
 #define MAX_CONNECTION 512
 
+// maximum number of messages handled for one client before the other clients get their turn
+#define MAX_RECV_BURST 64
+
 static int cfstring_equals_cstring(CFStringRef value, const char* expected)
 {
     if (value == NULL || expected == NULL)
@@ -94,6 +97,7 @@ int send_data_to_client(xipc_t* client, int* needClose);
 int write_data_to_socket(xipc_t* client, xipc_msg_t* msg);
 
 int recv_data_from_client(xipc_t* ipc, xipc_t* client, int* needClose);
+int recv_one_message(xipc_t* ipc, xipc_t* client, int* needClose);
 int read_header_from_socket(xipc_t* client, int* needClose);
 int read_data_from_socket(xipc_t* client, int* needClose);
 
@@ -737,6 +741,28 @@ int recv_data_from_client(xipc_t* ipc, xipc_t* client, int* needClose)
         return -1;
     }
     
+    // Handle every complete message that is already waiting in the socket,
+    // instead of one message per poll() round.
+    for (int i = 0; i < MAX_RECV_BURST; i++)
+    {
+        if (recv_one_message(ipc, client, needClose) == 0)
+        {
+            break;
+        }
+        
+        // the callback can ask to close the connection (xipc_end_loop)
+        if (*needClose != 0 || client->closed != 0)
+        {
+            break;
+        }
+    }
+    
+    return 0;
+}
+
+// return 1 if a complete message was received and passed to the callback, otherwise 0
+int recv_one_message(xipc_t* ipc, xipc_t* client, int* needClose)
+{
     if (client->expected_len == 0)
     {
         // read header
@@ -745,18 +771,21 @@ int recv_data_from_client(xipc_t* ipc, xipc_t* client, int* needClose)
             return 0;
         }
         
-        if (client->in_len >= sizeof(int))
+        if (client->in_len < sizeof(int))
         {
-            int expected_len = *(int*)&client->in_buf;
-            if (expected_len <= 0 || expected_len >= MAX_BUFFER)
-            {
-                *needClose = 1;
-                return 0;
-            }
-            
-            client->expected_len = expected_len;
-            client->in_len = 0;
+            // only a part of the header has arrived. wait for the rest.
+            return 0;
         }
+        
+        int expected_len = *(int*)&client->in_buf;
+        if (expected_len <= 0 || expected_len >= MAX_BUFFER)
+        {
+            *needClose = 1;
+            return 0;
+        }
+        
+        client->expected_len = expected_len;
+        client->in_len = 0;
     }
     
     // read body
@@ -780,7 +809,7 @@ int recv_data_from_client(xipc_t* ipc, xipc_t* client, int* needClose)
     client->in_len = 0;
     client->expected_len = 0;
     
-    return 0;
+    return 1;
 }
 
 int read_header_from_socket(xipc_t* client, int* needClose)

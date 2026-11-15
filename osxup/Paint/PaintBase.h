@@ -27,6 +27,11 @@ public:
 
     // 제출할 수 있는 최대 프레임 수 (디스플레이 당, ACK 대기 포함)
     virtual int MaxInFlightFrames() const { return FRAME_SLOTS; }
+
+    // Longest wait (ms) before a frame that is already in the shared memory is painted after an ACK made
+    // room for it. Slightly more than one capture interval, so a fresh frame from the agent always wins.
+    // (default: 30 fps capture)
+    virtual int PendingFrameWakeMs() const { return 37; }
 };
 
 #endif

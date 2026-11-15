@@ -27,6 +27,14 @@ public:
     }
     
     static int CheckRecordFormat(const struct mod* mod);
+
+    // When an ACK freed in-flight capacity while a frame was already waiting, returns once how long (ms)
+    // xrdp may wait at most before calling Paint again. Returns 0 when there is no such request.
+    int ConsumeWakeRequestMs() {
+        bool requested = _wakeRequested;
+        _wakeRequested = false;
+        return requested ? _pendingFrameWakeMs : 0;
+    }
     
 private:
     static const int IN_FLIGHT_SLOT_COUNT = FRAME_SLOTS * 16;
@@ -48,6 +56,8 @@ private:
     const struct mod* _mod;
     volatile bool _inPainting;
     volatile bool _releasePending;
+    bool _wakeRequested;
+    int _pendingFrameWakeMs;
     unsigned int _nextFrameId;
     unsigned int _nextSubmitPos[16];
     int _maxInFlightFrames;
@@ -67,6 +77,7 @@ private:
     int PopAckedInFlight(int ackFrameId, unsigned int* outMaxReadPosByDisplay, bool* outHasReadPosByDisplay);
     void ResetInFlight();
     void ReleaseResources();
+    bool HasSubmittableFrame();
     
     void PaintMouseCursor();
 };
