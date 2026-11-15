@@ -75,3 +75,23 @@ Starting from **osxrdp 2.0.0**, osxrdp supports file and folder copy between the
 
 * On Macs with FileVault enabled, you must sign in locally after the initial startup to unlock the system. \
   On macOS 26 or later, this step can also be performed remotely over SSH. (https://support.apple.com/ko-kr/guide/security/sec8447f5049/web)
+
+## Troubleshooting a black screen
+
+If the client connects but only shows a black screen:
+
+1. **Check the Screen Recording permission.** \
+   Open **System Settings > Privacy & Security > Screen & System Audio Recording**, switch OSXRDP off and on again, then restart the OSXRDP app. \
+   The permission can look enabled but no longer apply after the app was reinstalled, updated or rebuilt.
+2. **Try the other session type.** \
+   On the connection screen choose **osxrdp (no virtual display)**. If that works, the problem is in the Virtual Monitor on this Mac.
+3. **Make sure the display is not asleep.** \
+   Disable display sleep on the remote Mac. Nothing can be captured from a display that is off.
+4. **Look at the log.** Run this in Terminal on the remote Mac right after a failed attempt:
+   ```bash
+   log show --last 5m --predicate 'process == "OSXRDP"' | grep -E "ScreenRecorder|VirtualMon"
+   ```
+   * `first frame published` : the Mac side is capturing and handing frames to xrdp. The problem is then between xrdp and the client (codec, network). Check `/var/log/xrdp.log`.
+   * `startCapture failed` or `could not get shareable content` : screen capture was refused. See step 1.
+   * `has not changed since the stream started ... blank=` with a number above 0 : the display is off or asleep. See step 3.
+   * `stream stopped` : macOS stopped the capture, usually because the display layout changed. Reconnect.
