@@ -75,6 +75,10 @@ private:
     screenrecord_frame_t _pendingDirty[16];
     bool _pendingDirtyFull[16];
 
+    // diagnostics
+    bool _firstFrameLogged[16];
+    int _copyFailureLogCnt;
+
     bool CreateRecordShm(int recordIdx);
     void DestroyRecordShm();
     
@@ -93,17 +97,19 @@ private:
     int GetMonitorRecordHeight(int recordIdx);
 
     // 녹화 데이터 처리기
-    static void HandleBGRA32RecordData(void* pixelBuffer, const CGRect* dirtyRects, int dirtyRectsCnt, void* userData, int displayIdx);
-    static void HandleBGRA32DirtyArea(void* pixelBuffer, screenrecord_frame* current_frame, const CGRect* dirtyRects, int dirtyRectsCnt, char* screenrecord_data);
+    // Common part. 1: the frame was written, 0: no free slot (the recorder offers the same frame again)
+    int HandleRecordData(int recordFormat, void* pixelBuffer, const CGRect* dirtyRects, int dirtyRectsCnt, int displayIdx);
+    static int HandleBGRA32RecordData(void* pixelBuffer, const CGRect* dirtyRects, int dirtyRectsCnt, void* userData, int displayIdx);
+    static bool HandleBGRA32DirtyArea(void* pixelBuffer, screenrecord_frame* current_frame, const CGRect* dirtyRects, int dirtyRectsCnt, char* screenrecord_data, size_t dataCapacity);
     
-    static void HandleNV12PackedRecordData(void* pixelBuffer, const CGRect* dirtyRects, int dirtyRectsCnt, void* userData, int displayIdx);
-    static void HandleNV12PackedDirtyArea(void* pixelBuffer, screenrecord_frame* current_frame, const CGRect* dirtyRects, int dirtyRectsCnt, char* screenrecord_data);
+    static int HandleNV12PackedRecordData(void* pixelBuffer, const CGRect* dirtyRects, int dirtyRectsCnt, void* userData, int displayIdx);
+    static bool HandleNV12PackedDirtyArea(void* pixelBuffer, screenrecord_frame* current_frame, const CGRect* dirtyRects, int dirtyRectsCnt, char* screenrecord_data, size_t dataCapacity);
     
-    static void HandleNV12AlignedRecordData(void* pixelBuffer, const CGRect* dirtyRects, int dirtyRectsCnt, void* userData, int displayIdx);
-    static void HandleNV12AlignedDirtyArea(void* pixelBuffer, screenrecord_frame* current_frame, const CGRect* dirtyRects, int dirtyRectsCnt, char* screenrecord_data);
+    static int HandleNV12AlignedRecordData(void* pixelBuffer, const CGRect* dirtyRects, int dirtyRectsCnt, void* userData, int displayIdx);
+    static bool HandleNV12AlignedDirtyArea(void* pixelBuffer, screenrecord_frame* current_frame, const CGRect* dirtyRects, int dirtyRectsCnt, char* screenrecord_data, size_t dataCapacity);
     
-    static void HandleRFXRecordData(void* pixelBuffer, const CGRect* dirtyRects, int dirtyRectsCnt, void* userData, int displayIdx);
-    bool HandleRFXDirtyArea(void* pixelBuffer, screenrecord_frame* current_frame, const CGRect* dirtyRects, int dirtyRectsCnt, char* screenrecord_data);
+    static int HandleRFXRecordData(void* pixelBuffer, const CGRect* dirtyRects, int dirtyRectsCnt, void* userData, int displayIdx);
+    bool HandleRFXDirtyArea(void* pixelBuffer, screenrecord_frame* current_frame, const CGRect* dirtyRects, int dirtyRectsCnt, char* screenrecord_data, size_t dataCapacity);
     
     // 데이터를 작성할 slot 찾기
     bool AcquireFrameSlot(screenrecord_shm_t** recordInfoOut, screenrecord_frame** frameOut, char** dataOut, unsigned int* writePosOut, int displayIdx);
@@ -111,20 +117,26 @@ private:
     // 데이터 작성 완료 flag 설정
     void CommitFrameSlot(screenrecord_shm_t* recordInfo, unsigned int writePos, int displayIdx);
 
+    // Largest image payload that fits into one slot
+    static size_t GetSlotDataCapacity(const screenrecord_shm_t* recordInfo);
+
+    // The frame could not be written to the slot: the slot is not committed and the area is redrawn with the next frame
+    void HandleCopyFailure(int displayIdx, void* pixelBuffer, const screenrecord_shm_t* recordInfo, const CGRect* dirtyRects, int dirtyRectsCnt);
+
     // osxup 에게 그릴 데이터가 있음을 알림 (NEEDPAINT)
     void SendNeedPaintMsg(int displayIdx);
 
     // NV12Packed 데이터를 메모리에 기록
-    static bool CopyNV12PackedFrame(void* imageBuffer, char* screenrecord_data, int* widthOut, int* heightOut);
+    static bool CopyNV12PackedFrame(void* imageBuffer, char* screenrecord_data, size_t dataCapacity, int* widthOut, int* heightOut);
     
     // NV12Aligned 데이터를 메모리에 기록
-    static bool CopyNV12AlignedFrame(void* imageBuffer, char* screenrecord_data, int* widthOut, int* heightOut);
+    static bool CopyNV12AlignedFrame(void* imageBuffer, char* screenrecord_data, size_t dataCapacity, int* widthOut, int* heightOut);
     
     // BGRA32 데이터를 메모리에 기록
-    static bool CopyBGRA32Frame(void* imageBuffer, char* screenrecord_data, int* widthOut, int* heightOut);
+    static bool CopyBGRA32Frame(void* imageBuffer, char* screenrecord_data, size_t dataCapacity, int* widthOut, int* heightOut);
 
     // YUV444 데이터를 메모리에 기록
-    bool CopyRFXFrame(void* imageBuffer, char* screenrecord_data, int* widthOut, int* heightOut);
+    bool CopyRFXFrame(void* imageBuffer, char* screenrecord_data, size_t dataCapacity, int* widthOut, int* heightOut);
     
     // dirty area (변화한 구역) 정보 처리
     inline static void ProcessDirtyArea(const CGRect* rect, int limitX, int limitY, struct RECT* dst);
@@ -134,6 +146,7 @@ private:
     void AddPendingDirty(int displayIdx, const CGRect* dirtyRects, int dirtyRectsCnt, int width, int height);
     void AddPendingDirtyFromPixelBuffer(int displayIdx, void* pixelBuffer, const CGRect* dirtyRects, int dirtyRectsCnt);
     void ApplyPendingDirty(int displayIdx, screenrecord_frame* current_frame);
+    void UsePendingDirtyAsFrameDirty(int displayIdx, screenrecord_frame* current_frame);
     
     static void PopulateDirtyRectsFromSampleBuffer(void* sampleBuffer, int width, int height, screenrecord_frame* current_frame);
     static void PopulateDirtyRectsFromArray(const CGRect* dirtyRects, int dirtyRectsCnt, int width, int height, screenrecord_frame* current_frame);
